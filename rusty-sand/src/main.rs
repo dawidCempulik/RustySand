@@ -1,14 +1,29 @@
 use nannou::prelude::*;
 
+const GRID_SIZE: (usize, usize) = (100, 100);
+
+#[derive(Copy)]
+enum CellType {
+    Air,
+    Sand
+}
+
+#[derive(Copy)]
+struct Cell {
+    cell_type: CellType
+}
+
 fn main() {
     nannou::app(model).update(update).simple_window(view).run();
 }
 
 struct Model {
+    grid: [[Cell; GRID_SIZE.0]; GRID_SIZE.1]
 }
 
 fn model(_app: &App) -> Model {
     Model {
+        grid: [[Cell { cell_type: CellType::Air }; GRID_SIZE.0]; GRID_SIZE.1]
     }
 }
 
