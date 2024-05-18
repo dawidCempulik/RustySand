@@ -1,0 +1,176 @@
+use std::cmp::PartialEq;
+use std::ops::{Div};
+
+const GRID_SIZE: (usize, usize) = (40, 40);
+const WINDOW_SIZE: (u32, u32) = (800, 800);
+
+#[derive(Copy, Clone)]
+struct Grid {
+    grid: [[Cell; GRID_SIZE.0]; GRID_SIZE.1]
+}
+
+impl Grid {
+    fn new() -> Grid {
+        Grid {
+            grid: [[Cell::new(CellType::Air); GRID_SIZE.0]; GRID_SIZE.1]
+        }
+    }
+
+    fn place(&mut self, pos: (usize, usize), cell_type: CellType) {
+        let cell = &self.grid[pos.0][pos.1];
+        if cell.cell_type == CellType::Air {
+            self.grid[pos.0][pos.1] = Cell::new(cell_type);
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Cell {
+    cell_type: CellType,
+    color: (u8, u8, u8)
+}
+
+impl Cell {
+    fn new(cell_type: CellType) -> Cell {
+        let mut color = (50u8, 0u8, 0u8);
+
+        if cell_type == CellType::Sand {
+            color = (252u8, 186u8, 3u8);
+        }
+
+        Cell {
+            cell_type,
+            color
+        }
+    }
+
+    fn logic(&self, &grid: &Grid){
+
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq)]
+enum CellType {
+    Air,
+    Sand
+}
+
+fn main() {
+
+}
+
+// fn screen_to_grid(app: &App, model: &Model, point: Point2) -> (usize, usize) {
+//     let win_top_left = app.window_rect().top_left();
+//     let mut new_point = vec2(win_top_left.x - point.x, point.y - win_top_left.y).abs();
+//     new_point = new_point.div(Vec2::from(model.points_per_cell));
+//     let mut new_point = (new_point.x as usize, new_point.y as usize);
+//     if new_point.0 >= GRID_SIZE.0 {
+//         new_point.0 = GRID_SIZE.0 - 1;
+//     }
+//     if new_point.1 >= GRID_SIZE.1 {
+//         new_point.1 = GRID_SIZE.1 - 1;
+//     }
+//
+//     new_point
+// }
+
+// fn grid_to_screen(app: &App, model: &Model, point: (usize, usize)) -> Point2 {
+//     let win_top_left = app.window_rect().top_left();
+//     let mut new_point = vec2(point.0 as f32 * model.points_per_cell.0,
+//                                point.1 as f32 * model.points_per_cell.1);
+//     new_point = vec2(new_point.x + win_top_left.x, win_top_left.y - new_point.y);
+//     Point2::from(new_point)
+// }
+
+// struct Input {
+//     left_mouse_pressed: bool,
+// }
+//
+// struct Model {
+//     grid: Grid,
+//     input: Input,
+//     points_per_cell: (f32, f32),
+// }
+//
+// impl Model {
+//     fn execute_logic(&self) {
+//         for row in self.grid.grid {
+//             for cell in row {
+//                 cell.logic(&self.grid);
+//             }
+//         }
+//     }
+// }
+//
+// fn model(app: &App) -> Model {
+//     let win = app.window_rect();
+//
+//     Model {
+//         grid: Grid::new(),
+//         input: Input {
+//             left_mouse_pressed: false
+//         },
+//         points_per_cell: (win.w() / GRID_SIZE.0 as f32, win.h() / GRID_SIZE.1 as f32),
+//     }
+// }
+//
+// fn update(app: &App, model: &mut Model, _update: Update) {
+//     if model.input.left_mouse_pressed {
+//         model.grid.place(screen_to_grid(app, model, app.mouse.position()), CellType::Sand);
+//     }
+//
+//     model.execute_logic();
+// }
+//
+// fn event(_app: &App, model: &mut Model, event: Event) {
+//     match event {
+//         Event::WindowEvent { id: _, simple } => {
+//             if simple == None {
+//                 return;
+//             }
+//             match simple.unwrap() {
+//                 KeyPressed(_key) => {
+//                 }
+//                 KeyReleased(_key) => {}
+//                 MousePressed(mouse_button) => {
+//                     if mouse_button == MouseButton::Left {
+//                         model.input.left_mouse_pressed = true;
+//                     }
+//                 }
+//                 MouseReleased(mouse_button) => {
+//                     if mouse_button == MouseButton::Left {
+//                         model.input.left_mouse_pressed = false;
+//                     }
+//                 }
+//                 _ => ()
+//             }
+//         }
+//         _ => ()
+//     }
+// }
+//
+// fn view(app: &App, model: &Model, frame: Frame) {
+//     let win = app.window_rect();
+//
+//     let draw = app.draw();
+//     draw.background().color(BLACK);
+//
+//     let mut r:usize = 0;
+//     let mut c:usize = 0;
+//     for row in model.grid.grid {
+//         c = 0;
+//         for cell in row {
+//             let screen_pos = grid_to_screen(app, model, (c, r));
+//             draw.rect().color(cell.color)
+//                 .xy(screen_pos)
+//                 .w_h(model.points_per_cell.0, model.points_per_cell.1);
+//             c += 1;
+//         }
+//         r += 1;
+//     }
+//
+//     draw.text((app.fps() as u32).to_string().as_str())
+//         .xy(win.top_left() + pt2(20.0, -20.0))
+//         .color(RED);
+//     draw.to_frame(app, &frame).unwrap();
+// }

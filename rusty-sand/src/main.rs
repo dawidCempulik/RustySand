@@ -1,43 +1,60 @@
-use nannou::prelude::*;
+use winit::application::ApplicationHandler;
+use winit::dpi::{LogicalSize};
+use winit::event::{WindowEvent, DeviceEvent, DeviceId};
+use winit::event_loop::{EventLoop, ActiveEventLoop};
+use winit::window::{Window, WindowId};
 
-const GRID_SIZE: (usize, usize) = (100, 100);
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 800;
 
-#[derive(Copy)]
-enum CellType {
-    Air,
-    Sand
+
+#[derive(Default)]
+struct State {
+    // Use an `Option` to allow the window to not be available until the
+    // application is properly running.
+    window: Option<Window>,
+    window_size: LogicalSize<f64>
 }
 
-#[derive(Copy)]
-struct Cell {
-    cell_type: CellType
-}
-
-fn main() {
-    nannou::app(model).update(update).simple_window(view).run();
-}
-
-struct Model {
-    grid: [[Cell; GRID_SIZE.0]; GRID_SIZE.1]
-}
-
-fn model(_app: &App) -> Model {
-    Model {
-        grid: [[Cell { cell_type: CellType::Air }; GRID_SIZE.0]; GRID_SIZE.1]
+impl ApplicationHandler for State {
+    // This is a common indicator that you can create a window.
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.window = Some(event_loop.create_window(
+            Window::default_attributes()
+                .with_title("Hello Pixels!")
+                .with_inner_size(self.window_size)
+                .with_min_inner_size(self.window_size)
+        ).unwrap());
+    }
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+        // `unwrap` is fine, the window will always be available when
+        // receiving a window event.
+        let window = self.window.as_ref().unwrap();
+        match event {
+            WindowEvent::CloseRequested => {
+                event_loop.exit()
+            }
+            WindowEvent::KeyboardInput { .. } => {}
+            WindowEvent::CursorMoved { .. } => {}
+            WindowEvent::MouseInput { .. } => {}
+            _ => ()
+        }
+        // Handle window event.
+    }
+    fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
+        // Handle window event.
+    }
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(window) = self.window.as_ref() {
+            window.request_redraw();
+        }
     }
 }
 
-fn update(_app: &App, _model: &mut Model, _update: Update) {
-
-}
-
-fn view(app: &App, _model: &Model, frame: Frame) {
-    let win = app.window_rect();
-
-    let draw = app.draw();
-    draw.background().color(BLACK);
-    draw.text((app.fps() as u32).to_string().as_str())
-        .xy(win.top_left() + pt2(20.0, -20.0))
-        .color(RED);
-    draw.to_frame(app, &frame).unwrap();
+fn main() {
+    env_logger::init();
+    let event_loop = EventLoop::new().unwrap();
+    let mut state = State::default();
+    state.window_size = LogicalSize::new(WIDTH as f64, HEIGHT as f64);
+    let _ = event_loop.run_app(&mut state);
 }
