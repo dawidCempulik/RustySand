@@ -1,19 +1,19 @@
 use error_iter::ErrorIter;
 use log::error;
 use pixels::{Pixels, SurfaceTexture};
-use pixels::wgpu::Color;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
-use winit::event::{WindowEvent, DeviceEvent, DeviceId, KeyEvent, MouseButton, ElementState};
+use winit::event::{WindowEvent, DeviceEvent, DeviceId, MouseButton, ElementState};
 use winit::event_loop::{EventLoop, ActiveEventLoop};
-use winit::keyboard::{Key, PhysicalKey};
-use winit::keyboard::KeyCode;
 use winit::window::{Window, WindowId};
-use rand::random;
 
-const WIDTH: u32 = 800;
-const HEIGHT: u32 = 800;
-const GRID_SIZE: usize = 200;
+const WIDTH: u32 = 900;
+const HEIGHT: u32 = 900;
+const GRID_WIDTH: usize = 100;
+const GRID_SIZE: usize = GRID_WIDTH * GRID_WIDTH;
+
+const CELL_AIR: CellType = CellType::Air;
+const CELL_SAND: CellType = CellType::Sand([252, 186, 3, 255]);
 
 #[derive(Default)]
 struct World {
@@ -23,55 +23,50 @@ struct World {
 
 impl World {
     fn draw(&mut self) {
-        let mut frame = self.pixels.as_mut().unwrap().frame_mut();
+        let frame = self.pixels.as_mut().unwrap().frame_mut();
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             let cell = self.grid.grid[i];
             // if cell.cell_type == CellType::Air {
             //     continue;
             // }
+            let mut rgba:&[u8;4] = &[0,0,0,255];
+            match cell.cell_type {
+                CellType::Sand(color) => {
+                    rgba = color;
+                }
+                _ => {}
+            }
 
-            let rgba = cell.color;
-            pixel.copy_from_slice(&rgba);
+            pixel.copy_from_slice(rgba);
         }
     }
 }
 
 struct Grid {
-    grid: Box<[Cell; GRID_SIZE * GRID_SIZE]>
+    grid: Box<[Cell; GRID_SIZE]>
 }
 
 impl Default for Grid {
     fn default() -> Self {
         Grid {
-            grid: Box::new([Cell::new(CellType::Air); GRID_SIZE * GRID_SIZE])
+            grid: Box::new([Cell::new(&CELL_AIR); GRID_SIZE])
         }
     }
 }
 
 impl Grid {
-    fn place(&mut self, pos: usize, cell_type: CellType) {
+    fn place(&mut self, pos: usize, cell_type: &'static CellType) {
         let cell = &self.grid[pos];
-        if cell.cell_type == CellType::Air {
+        if cell.cell_type.eq(&CELL_AIR) {
             self.grid[pos] = Cell::new(cell_type);
         }
     }
 
     fn execute_logic(&mut self) {
         let mut i: usize = 0;
-        let temp = self.grid.clone();
-        for cell in temp.iter() {
-            if cell.cell_type == CellType::Sand {
-                if i + GRID_SIZE >= GRID_SIZE * GRID_SIZE {
-                    return;
-                }
-
-                if self.grid[i + GRID_SIZE].cell_type == CellType::Air {
-                    self.grid.swap(i, i + GRID_SIZE);
-                    return;
-                }
-
-
-            }
+        let grid = self.grid.clone();
+        for cell in grid.as_ref() {
+            cell.logic(self, i);
 
             i += 1;
         }
@@ -80,21 +75,26 @@ impl Grid {
 
 #[derive(Copy, Clone)]
 struct Cell {
-    cell_type: CellType,
-    color: [u8; 4]
+    cell_type: &'static CellType,
 }
 
 impl Cell {
-    fn new(cell_type: CellType) -> Cell {
-        let mut color:[u8;4] = [0, 0, 0, 255];
-
-        if cell_type == CellType::Sand {
-            color = [252, 186, 3, 255];
-        }
-
+    fn new(cell_type: &'static CellType) -> Cell {
         Cell {
-            cell_type,
-            color
+            cell_type
+        }
+    }
+
+    fn logic(&self, grid: &mut Grid, i: usize) {
+        if self.cell_type.eq(&CELL_SAND) {
+            if i + GRID_WIDTH >= GRID_SIZE {
+                return;
+            }
+
+            if grid.grid[i + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
+                grid.grid.swap(i, i + GRID_WIDTH);
+                return;
+            }
         }
     }
 }
@@ -102,7 +102,7 @@ impl Cell {
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CellType {
     Air,
-    Sand
+    Sand([u8;4])
 }
 
 #[derive(Default)]
@@ -137,7 +137,7 @@ impl ApplicationHandler for State {
             let surface_texture = SurfaceTexture::new(window_size.width, window_size.height, self.window.as_ref().unwrap());
             Pixels::new(WIDTH, HEIGHT, surface_texture)
         }.expect("Pixels not initialized!");
-        pixels.resize_buffer(GRID_SIZE as u32, GRID_SIZE as u32).expect("Couldn't resize pixels buffer!");
+        pixels.resize_buffer(GRID_WIDTH as u32, GRID_WIDTH as u32).expect("Couldn't resize pixels buffer!");
         self.world.pixels = Option::from(pixels);
 
         println!("Resumed!");
@@ -201,7 +201,7 @@ fn update(state: &mut State, event_loop: &ActiveEventLoop) {
                     .window_pos_to_pixel((state.input.mouse_position.x, state.input.mouse_position.y));
             if pixel_pos.is_ok() {
                 let pos = pixel_pos.unwrap();
-                state.world.grid.place(pos.1 * GRID_SIZE + pos.0, CellType::Sand);
+                state.world.grid.place(pos.1 * GRID_WIDTH + pos.0, &CELL_SAND);
             }
         }
     }
