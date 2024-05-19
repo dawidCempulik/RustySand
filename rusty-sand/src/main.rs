@@ -1,6 +1,8 @@
 use error_iter::ErrorIter;
 use log::error;
 use pixels::{Pixels, SurfaceTexture};
+use rand::{random, Rng};
+use rand::prelude::ThreadRng;
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition};
 use winit::event::{WindowEvent, DeviceEvent, DeviceId, MouseButton, ElementState};
@@ -179,6 +181,47 @@ impl Cell {
 
                     self.velocity.1 = 0.0;
                     break;
+                }
+
+                if pos == newpos && self.velocity.1 == 0.0 && pos + GRID_WIDTH < GRID_SIZE {
+                    let mut leftfree = false;
+                    let temp = ((pos as i32) - 1) / GRID_WIDTH as i32;
+                    let templeft = pos - 1 + GRID_WIDTH;
+                    if (pos as i32) / GRID_WIDTH as i32 == temp {
+                        if grid.grid[templeft].cell_type.eq(&CELL_AIR) {
+                            leftfree = true;
+                        }
+                    }
+
+                    let mut rightfree = false;
+                    let temp = ((pos as i32) + 1) / GRID_WIDTH as i32;
+                    let tempright = pos + 1 + GRID_WIDTH;
+                    if (pos as i32) / GRID_WIDTH as i32 == temp {
+                        if grid.grid[tempright].cell_type.eq(&CELL_AIR) {
+                            rightfree = true;
+                        }
+                    }
+
+                    if leftfree && rightfree {
+                        let mut rng = rand::thread_rng();
+
+                        if rng.gen_bool(0.5) {
+                            newpos = templeft;
+                        }
+                        else {
+                            newpos = tempright;
+                        }
+                    }
+                    else if leftfree {
+                        newpos = templeft;
+                    }
+                    else if rightfree {
+                        newpos = tempright;
+                    }
+                }
+
+                if pos != newpos {
+                    changes.append(&mut vec![(pos, newpos)]);
                 }
             }
             _ => {}
