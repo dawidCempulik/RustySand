@@ -13,7 +13,7 @@ const GRID_WIDTH: usize = 100;
 const GRID_SIZE: usize = GRID_WIDTH * GRID_WIDTH;
 
 const CELL_AIR: CellType = CellType::Air;
-const CELL_SAND: CellType = CellType::Sand([252, 186, 3, 255]);
+const CELL_SAND: CellType = CellType::Sand([252, 186, 3, 255], [1, 3, 1]);
 
 #[derive(Default)]
 struct World {
@@ -31,7 +31,7 @@ impl World {
             // }
             let mut rgba:&[u8;4] = &[0,0,0,255];
             match cell.cell_type {
-                CellType::Sand(color) => {
+                CellType::Sand(color, _) => {
                     rgba = color;
                 }
                 _ => {}
@@ -63,6 +63,12 @@ impl Grid {
     }
 
     fn place_line(&mut self, pos1: (usize, usize), pos2: (usize, usize), cell_type: &'static CellType) {
+        for point in Self::generate_line(pos1, pos2){
+            self.place((point.1 as usize) * GRID_WIDTH + (point.0 as usize), cell_type);
+        }
+    }
+
+    fn generate_line(pos1: (usize, usize), pos2: (usize, usize)) -> Vec<(i32, i32)> {
         let mut points = vec![];
 
         let mut x1:i32 = pos1.0 as i32;
@@ -100,7 +106,7 @@ impl Grid {
                     x1 -= 1;
                 }
             }
-            
+
             if e2 <= dx{
                 if y1 == y2{
                     break
@@ -115,9 +121,7 @@ impl Grid {
             }
         }
 
-        for point in points{
-            self.place((point.1 as usize) * GRID_WIDTH + (point.0 as usize), cell_type);
-        }
+        points
     }
 
     fn execute_logic(&mut self) {
@@ -125,8 +129,9 @@ impl Grid {
 
         let mut i: usize = 0;
         loop {
-            let cell: Cell = self.grid.as_ref()[i];
+            let mut cell: Cell = self.grid[i];
             cell.logic(self, i, &mut changes);
+            self.grid[i] = cell;
 
             i += 1;
             if i == GRID_SIZE {
@@ -143,24 +148,40 @@ impl Grid {
 #[derive(Copy, Clone)]
 struct Cell {
     cell_type: &'static CellType,
+    velocity: (f32, f32)
 }
 
 impl Cell {
     fn new(cell_type: &'static CellType) -> Cell {
         Cell {
-            cell_type
+            cell_type,
+            velocity: (0.0,0.0)
         }
     }
 
-    fn logic(&self, grid: &Grid, i: usize, changes: &mut Vec<(usize, usize)>) {
-        if self.cell_type.eq(&CELL_SAND) {
-            if i + GRID_WIDTH >= GRID_SIZE {
-                return;
-            }
+    fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Vec<(usize, usize)>) {
+        match self.cell_type {
+            CellType::Sand(_, velocities) => {
+                let mut newpos = pos;
+                let mut i = 0;
+                if (self.velocity.1 as i32) < velocities[1] as i32 {
+                    self.velocity.1 += 0.3;
+                }
+                while i < self.velocity.1 as i32{
+                    let temp = pos + (GRID_WIDTH * (i + 1) as usize);
+                    if temp < GRID_SIZE {
+                        if grid.grid[temp].cell_type.eq(&CELL_AIR) {
+                            newpos = temp;
+                            i += 1;
+                            continue;
+                        }
+                    }
 
-            if grid.grid[i + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
-                changes.append(&mut vec![(i, i + GRID_WIDTH)]);
+                    self.velocity.1 = 0.0;
+                    break;
+                }
             }
+            _ => {}
         }
     }
 }
@@ -168,7 +189,7 @@ impl Cell {
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CellType {
     Air,
-    Sand([u8;4])
+    Sand([u8;4], [u8;3])
 }
 
 #[derive(Default)]
@@ -209,10 +230,10 @@ impl ApplicationHandler for State {
 
         println!("Resumed!");
     }
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, window_id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
         // `unwrap` is fine, the window will always be available when
         // receiving a window event.
-        let window = self.window.as_ref().unwrap();
+        let _window = self.window.as_ref().unwrap();
         match event {
             WindowEvent::RedrawRequested => {
                 render(self, event_loop);
@@ -221,12 +242,12 @@ impl ApplicationHandler for State {
             WindowEvent::CloseRequested => {
                 event_loop.exit()
             }
-            WindowEvent::KeyboardInput { device_id, event, is_synthetic} => {
+            WindowEvent::KeyboardInput { device_id: _device_id, event: _, is_synthetic: _} => {
             }
-            WindowEvent::CursorMoved {device_id, position} => {
+            WindowEvent::CursorMoved {device_id: _, position} => {
                 self.input.mouse_position = <(f32, f32)>::from(position).into();
             }
-            WindowEvent::MouseInput {device_id, button, state} => {
+            WindowEvent::MouseInput {device_id: _, button, state} => {
                 if button == MouseButton::Left {
                     match state {
                         ElementState::Pressed => {
@@ -242,10 +263,10 @@ impl ApplicationHandler for State {
         }
         // Handle window event.
     }
-    fn device_event(&mut self, event_loop: &ActiveEventLoop, device_id: DeviceId, event: DeviceEvent) {
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _device_id: DeviceId, _event: DeviceEvent) {
         // Handle window event.
     }
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
         if let Some(window) = self.window.as_ref() {
             window.request_redraw();
         }
@@ -260,7 +281,7 @@ fn main() {
     let _ = event_loop.run_app(&mut state);
 }
 
-fn update(state: &mut State, event_loop: &ActiveEventLoop) {
+fn update(state: &mut State, _event_loop: &ActiveEventLoop) {
     if state.input.left_mouse_pressed {
         if state.world.pixels.is_some() {
             let pixel_pos1 =
