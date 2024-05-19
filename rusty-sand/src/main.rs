@@ -161,6 +161,8 @@ impl Cell {
     fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Vec<(usize, usize)>) {
         match self.cell_type {
             CellType::Sand(_) => {
+                let mut rng = rand::thread_rng();
+
                 if pos + GRID_WIDTH < GRID_SIZE {
                     if grid.grid[pos + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
                         if self.velocity.1 < 3.0 {
@@ -170,22 +172,76 @@ impl Cell {
                             }
                         }
                     }
+                    else {
+                        let mut left_free = false;
+                        if pos / GRID_WIDTH == (pos - 1) / GRID_WIDTH {
+                            if grid.grid[pos - 1 + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
+                                left_free = true;
+                            }
+                        }
+
+                        let mut right_free = false;
+                        if pos / GRID_WIDTH == (pos + 1) / GRID_WIDTH {
+                            if grid.grid[pos + 1 + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
+                                right_free = true;
+                            }
+                        }
+
+                        if left_free && right_free {
+                            if rng.gen_bool(0.5) {
+                                self.velocity.0 = -1.5;
+                            }
+                            else {
+                                self.velocity.0 = 1.5;
+                            }
+                        }
+                        else if left_free {
+                            self.velocity.0 = -1.5;
+                        }
+                        else if right_free {
+                            self.velocity.0 = 1.5;
+                        }
+                        else {
+                            self.velocity.0 = 0.0;
+                        }
+
+                        if self.velocity.1 > 0.0 {
+                            self.velocity.1 -= 1.0;
+                            if self.velocity.1 < 0.0 {
+                                self.velocity.1 = 0.0;
+                            }
+                        }
+                    }
+                }
+
+                if self.velocity.0 > 0.0 {
+                    self.velocity.0 -= 0.3;
+                    if self.velocity.0 < 0.0 {
+                        self.velocity.0 = 0.0;
+                    }
+                }
+                if self.velocity.0 < 0.0 {
+                    self.velocity.0 += 0.3;
+                    if self.velocity.0 > 0.0 {
+                        self.velocity.0 = 0.0;
+                    }
                 }
 
                 let mut new_pos = pos;
                 let pos_xy = (pos % GRID_WIDTH, pos / GRID_WIDTH);
-                let mut intended_pos_xy = (((pos % GRID_WIDTH) as f32) + self.velocity.0, ((pos / GRID_WIDTH) as f32) + self.velocity.1);
-                if intended_pos_xy.0 < 0.0 {
-                    intended_pos_xy.0 = 0.0;
+                let mut floored_velocity = (self.velocity.0 as i32, self.velocity.1 as i32);
+                let mut intended_pos_xy = (((pos % GRID_WIDTH) as i32) + floored_velocity.0, ((pos / GRID_WIDTH) as i32) + floored_velocity.1);
+                if intended_pos_xy.0 < 0 {
+                    intended_pos_xy.0 = 0;
                 }
-                if intended_pos_xy.1 < 0.0 {
-                    intended_pos_xy.1 = 0.0;
+                if intended_pos_xy.1 < 0 {
+                    intended_pos_xy.1 = 0;
                 }
-                if intended_pos_xy.0 >= GRID_WIDTH as f32 {
-                    intended_pos_xy.0 = (GRID_WIDTH - 1) as f32;
+                if intended_pos_xy.0 >= GRID_WIDTH as i32 {
+                    intended_pos_xy.0 = (GRID_WIDTH - 1) as i32;
                 }
-                if intended_pos_xy.1 >= GRID_WIDTH as f32 {
-                    intended_pos_xy.1 = (GRID_WIDTH - 1) as f32;
+                if intended_pos_xy.1 >= GRID_WIDTH as i32 {
+                    intended_pos_xy.1 = (GRID_WIDTH - 1) as i32;
                 }
 
                 let points = Grid::generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize));
