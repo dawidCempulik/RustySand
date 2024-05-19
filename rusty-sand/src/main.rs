@@ -62,13 +62,80 @@ impl Grid {
         }
     }
 
+    fn place_line(&mut self, pos1: (usize, usize), pos2: (usize, usize), cell_type: &'static CellType) {
+        let mut points = vec![];
+
+        let mut x1:i32 = pos1.0 as i32;
+        let x2:i32 = pos2.0 as i32;
+        let mut y1:i32 = pos1.1 as i32;
+        let y2:i32 = pos2.1 as i32;
+
+        let dx:i32 = x1.abs_diff(x2) as i32;
+        let mut xpositive = true;
+        if x1 > x2{
+            xpositive = false;
+        }
+        let dy:i32 = -(y1.abs_diff(y2) as i32);
+        let mut ypositive = true;
+        if y1 > y2{
+            ypositive = false;
+        }
+        let mut error = dx + dy;
+
+        loop {
+            points.append(&mut vec![(x1, y1)]);
+            if x1 == x2 && y1 == y2{
+                break;
+            }
+            let e2 = 2 * error;
+            if e2 >= dy{
+                if x1 == x2{
+                    break;
+                }
+                error = error + dy;
+                if xpositive {
+                    x1 += 1;
+                }
+                else {
+                    x1 -= 1;
+                }
+            }
+            
+            if e2 <= dx{
+                if y1 == y2{
+                    break
+                }
+                error = error + dx;
+                if ypositive {
+                    y1 += 1;
+                }
+                else {
+                    y1 -= 1;
+                }
+            }
+        }
+
+        for point in points{
+            self.place((point.1 as usize) * GRID_WIDTH + (point.0 as usize), cell_type);
+        }
+    }
+
     fn execute_logic(&mut self) {
+        let mut changes = vec![];
+
         let mut i: usize = 0;
-        let grid = self.grid.clone();
-        for cell in grid.as_ref() {
-            cell.logic(self, i);
+        loop {
+            let cell: Cell = self.grid.as_ref()[i];
+            cell.logic(self, i, &mut changes);
 
             i += 1;
+            if i == GRID_SIZE {
+                break;
+            }
+        }
+
+        for change in changes {
+            self.grid.swap(change.0, change.1);
         }
     }
 }
@@ -85,15 +152,14 @@ impl Cell {
         }
     }
 
-    fn logic(&self, grid: &mut Grid, i: usize) {
+    fn logic(&self, grid: &Grid, i: usize, changes: &mut Vec<(usize, usize)>) {
         if self.cell_type.eq(&CELL_SAND) {
             if i + GRID_WIDTH >= GRID_SIZE {
                 return;
             }
 
             if grid.grid[i + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
-                grid.grid.swap(i, i + GRID_WIDTH);
-                return;
+                changes.append(&mut vec![(i, i + GRID_WIDTH)]);
             }
         }
     }
@@ -118,6 +184,7 @@ struct State {
 #[derive(Default)]
 struct Input {
     mouse_position: PhysicalPosition<f32>,
+    previous_mouse_position: PhysicalPosition<f32>,
     left_mouse_pressed: bool
 }
 
@@ -196,15 +263,21 @@ fn main() {
 fn update(state: &mut State, event_loop: &ActiveEventLoop) {
     if state.input.left_mouse_pressed {
         if state.world.pixels.is_some() {
-            let pixel_pos =
+            let pixel_pos1 =
+                state.world.pixels.as_mut().unwrap()
+                    .window_pos_to_pixel((state.input.previous_mouse_position.x, state.input.previous_mouse_position.y));
+            let pixel_pos2 =
                 state.world.pixels.as_mut().unwrap()
                     .window_pos_to_pixel((state.input.mouse_position.x, state.input.mouse_position.y));
-            if pixel_pos.is_ok() {
-                let pos = pixel_pos.unwrap();
-                state.world.grid.place(pos.1 * GRID_WIDTH + pos.0, &CELL_SAND);
+            if pixel_pos1.is_ok() && pixel_pos2.is_ok() {
+                let pos1 = pixel_pos1.unwrap();
+                let pos2 = pixel_pos2.unwrap();
+                state.world.grid.place_line(pos1, pos2, &CELL_SAND);
             }
         }
     }
+
+    state.input.previous_mouse_position = state.input.mouse_position;
 
     state.world.grid.execute_logic();
 }
