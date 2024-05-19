@@ -9,13 +9,13 @@ use winit::event::{WindowEvent, DeviceEvent, DeviceId, MouseButton, ElementState
 use winit::event_loop::{EventLoop, ActiveEventLoop};
 use winit::window::{Window, WindowId};
 
-const WIDTH: u32 = 900;
-const HEIGHT: u32 = 900;
-const GRID_WIDTH: usize = 100;
+const WIDTH: u32 = 800;
+const HEIGHT: u32 = 800;
+const GRID_WIDTH: usize = 200;
 const GRID_SIZE: usize = GRID_WIDTH * GRID_WIDTH;
 
 const CELL_AIR: CellType = CellType::Air;
-const CELL_SAND: CellType = CellType::Sand([252, 186, 3, 255], [1, 3, 1]);
+const CELL_SAND: CellType = CellType::Sand([252, 186, 3, 255]);
 
 #[derive(Default)]
 struct World {
@@ -28,12 +28,9 @@ impl World {
         let frame = self.pixels.as_mut().unwrap().frame_mut();
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             let cell = self.grid.grid[i];
-            // if cell.cell_type == CellType::Air {
-            //     continue;
-            // }
             let mut rgba:&[u8;4] = &[0,0,0,255];
             match cell.cell_type {
-                CellType::Sand(color, _) => {
+                CellType::Sand(color) => {
                     rgba = color;
                 }
                 _ => {}
@@ -45,13 +42,13 @@ impl World {
 }
 
 struct Grid {
-    grid: Box<[Cell; GRID_SIZE]>
+    grid: Vec<Cell>
 }
 
 impl Default for Grid {
     fn default() -> Self {
         Grid {
-            grid: Box::new([Cell::new(&CELL_AIR); GRID_SIZE])
+            grid: vec![Cell::new(&CELL_AIR); GRID_SIZE]
         }
     }
 }
@@ -163,65 +160,63 @@ impl Cell {
 
     fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Vec<(usize, usize)>) {
         match self.cell_type {
-            CellType::Sand(_, velocities) => {
-                let mut newpos = pos;
-                let mut i = 0;
-                if (self.velocity.1 as i32) < velocities[1] as i32 {
-                    self.velocity.1 += 0.3;
-                }
-                while i < self.velocity.1 as i32{
-                    let temp = pos + (GRID_WIDTH * (i + 1) as usize);
-                    if temp < GRID_SIZE {
-                        if grid.grid[temp].cell_type.eq(&CELL_AIR) {
-                            newpos = temp;
-                            i += 1;
-                            continue;
+            CellType::Sand(_) => {
+                if pos + GRID_WIDTH < GRID_SIZE {
+                    if grid.grid[pos + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
+                        if self.velocity.1 < 3.0 {
+                            self.velocity.1 += 0.3;
+                            if self.velocity.1 > 3.0 {
+                                self.velocity.1 = 3.0;
+                            }
                         }
-                    }
-
-                    self.velocity.1 = 0.0;
-                    break;
-                }
-
-                if pos == newpos && self.velocity.1 == 0.0 && pos + GRID_WIDTH < GRID_SIZE {
-                    let mut leftfree = false;
-                    let temp = ((pos as i32) - 1) / GRID_WIDTH as i32;
-                    let templeft = pos - 1 + GRID_WIDTH;
-                    if (pos as i32) / GRID_WIDTH as i32 == temp {
-                        if grid.grid[templeft].cell_type.eq(&CELL_AIR) {
-                            leftfree = true;
-                        }
-                    }
-
-                    let mut rightfree = false;
-                    let temp = ((pos as i32) + 1) / GRID_WIDTH as i32;
-                    let tempright = pos + 1 + GRID_WIDTH;
-                    if (pos as i32) / GRID_WIDTH as i32 == temp {
-                        if grid.grid[tempright].cell_type.eq(&CELL_AIR) {
-                            rightfree = true;
-                        }
-                    }
-
-                    if leftfree && rightfree {
-                        let mut rng = rand::thread_rng();
-
-                        if rng.gen_bool(0.5) {
-                            newpos = templeft;
-                        }
-                        else {
-                            newpos = tempright;
-                        }
-                    }
-                    else if leftfree {
-                        newpos = templeft;
-                    }
-                    else if rightfree {
-                        newpos = tempright;
                     }
                 }
 
-                if pos != newpos {
-                    changes.append(&mut vec![(pos, newpos)]);
+                let mut new_pos = pos;
+                let pos_xy = (pos % GRID_WIDTH, pos / GRID_WIDTH);
+                let mut intended_pos_xy = (((pos % GRID_WIDTH) as f32) + self.velocity.0, ((pos / GRID_WIDTH) as f32) + self.velocity.1);
+                if intended_pos_xy.0 < 0.0 {
+                    intended_pos_xy.0 = 0.0;
+                }
+                if intended_pos_xy.1 < 0.0 {
+                    intended_pos_xy.1 = 0.0;
+                }
+                if intended_pos_xy.0 >= GRID_WIDTH as f32 {
+                    intended_pos_xy.0 = (GRID_WIDTH - 1) as f32;
+                }
+                if intended_pos_xy.1 >= GRID_WIDTH as f32 {
+                    intended_pos_xy.1 = (GRID_WIDTH - 1) as f32;
+                }
+
+                let points = Grid::generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize));
+
+                let mut previous_point = points[0];
+                for point in &points[1..] {
+                    let mut x = point.0;
+                    if x < 0 || x >= GRID_WIDTH as i32 {
+                        x = previous_point.0;
+                    }
+                    let mut y = point.1;
+                    if y < 0 || y >= GRID_WIDTH as i32 {
+                        y = previous_point.1;
+                    }
+
+                    let temp = (point.1 as usize) * GRID_WIDTH + point.0 as usize;
+                    if grid.grid[temp].cell_type.eq(&CELL_SAND) {
+                        x = previous_point.0;
+                        y = previous_point.1;
+                    }
+
+                    if x == previous_point.0 && y == previous_point.1 {
+                        break;
+                    }
+
+                    new_pos = (point.1 as usize) * GRID_WIDTH + point.0 as usize;
+                    previous_point = point.clone();
+                }
+
+                if pos != new_pos {
+                    changes.append(&mut vec![(pos, new_pos)]);
                 }
             }
             _ => {}
@@ -232,7 +227,7 @@ impl Cell {
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CellType {
     Air,
-    Sand([u8;4], [u8;3])
+    Sand([u8;4])
 }
 
 #[derive(Default)]
