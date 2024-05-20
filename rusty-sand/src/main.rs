@@ -147,14 +147,16 @@ impl Grid {
 #[derive(Copy, Clone)]
 struct Cell {
     cell_type: &'static CellType,
-    velocity: (f32, f32)
+    velocity: (f32, f32),
+    free_falling: bool
 }
 
 impl Cell {
     fn new(cell_type: &'static CellType) -> Cell {
         Cell {
             cell_type,
-            velocity: (0.0,0.0)
+            velocity: (0.0,0.0),
+            free_falling: false
         }
     }
 
@@ -163,74 +165,87 @@ impl Cell {
             CellType::Sand(_) => {
                 let mut rng = rand::thread_rng();
 
-                if pos + GRID_WIDTH < GRID_SIZE {
-                    if grid.grid[pos + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
-                        if self.velocity.1 < 3.0 {
-                            self.velocity.1 += 0.3;
-                            if self.velocity.1 > 3.0 {
-                                self.velocity.1 = 3.0;
-                            }
-                        }
+                let mut neighbours: [Option<&Cell>; 8] = [None; 8];
+                let mut i = -2;
+                let mut j = -2;
+                let mut index = -1;
+                while i < 1 {
+                    i += 1;
+                    let row = (pos as i32) + (i * GRID_WIDTH as i32);
+                    if row < 0 || row >= GRID_SIZE as i32 {
+                        index += 3;
+                        continue;
                     }
-                    else {
-                        let mut left_free = false;
-                        if pos / GRID_WIDTH == (pos - 1) / GRID_WIDTH {
-                            if grid.grid[pos - 1 + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
-                                left_free = true;
-                            }
+                    j = -2;
+                    while j < 1 {
+                        j += 1;
+                        let p = row + j;
+                        if p == pos as i32 {
+                            continue;
+                        }
+                        index += 1;
+                        if row / GRID_WIDTH as i32 != p / GRID_WIDTH as i32 {
+                            continue;
                         }
 
-                        let mut right_free = false;
-                        if pos / GRID_WIDTH == (pos + 1) / GRID_WIDTH {
-                            if grid.grid[pos + 1 + GRID_WIDTH].cell_type.eq(&CELL_AIR) {
-                                right_free = true;
-                            }
-                        }
-
-                        if left_free && right_free {
-                            if rng.gen_bool(0.5) {
-                                self.velocity.0 = -1.5;
-                            }
-                            else {
-                                self.velocity.0 = 1.5;
-                            }
-                        }
-                        else if left_free {
-                            self.velocity.0 = -1.5;
-                        }
-                        else if right_free {
-                            self.velocity.0 = 1.5;
-                        }
-                        else {
-                            self.velocity.0 = 0.0;
-                        }
-
-                        if self.velocity.1 > 0.0 {
-                            self.velocity.1 -= 1.0;
-                            if self.velocity.1 < 0.0 {
-                                self.velocity.1 = 0.0;
-                            }
-                        }
+                        neighbours[index as usize] = Option::from(&grid.grid[p as usize]);
                     }
                 }
 
-                if self.velocity.0 > 0.0 {
-                    self.velocity.0 -= 0.3;
-                    if self.velocity.0 < 0.0 {
-                        self.velocity.0 = 0.0;
+                if self.velocity.0.abs() < 1.0 {
+                    self.velocity.0 = 0.0;
+                } else {
+                    self.velocity.0 /= 1.5;
+                }
+
+                let mut grounded = false;
+                if neighbours[6].is_some() {
+                    if neighbours[6].unwrap().cell_type.eq(&CELL_AIR) {
+                        self.velocity.1 += 0.3;
+                    }
+                    else { grounded = true; }
+                }
+                else { grounded = true; }
+
+                if grounded {
+                    let mut left_bottom_free = false;
+                    if neighbours[5].is_some() {
+                        if neighbours[5].unwrap().cell_type.eq(&CELL_AIR) {
+                            left_bottom_free = true;
+                        }
+                    }
+
+                    let mut right_bottom_free = false;
+                    if neighbours[7].is_some() {
+                        if neighbours[7].unwrap().cell_type.eq(&CELL_AIR) {
+                            right_bottom_free = true;
+                        }
+                    }
+
+                    let speed = 1.0;
+                    if left_bottom_free && right_bottom_free {
+                        if rng.gen_bool(0.5) {
+                            right_bottom_free = false;
+                        } else {
+                            left_bottom_free = false;
+                        }
+                    }
+                    if left_bottom_free {
+                        self.velocity.0 -= speed;
+                    } else if right_bottom_free {
+                        self.velocity.0 += speed;
+                    }
+
+                    self.velocity.1 -= 0.5;
+                    if self.velocity.1 < 0.0 {
+                        self.velocity.1 = 0.0;
                     }
                 }
-                if self.velocity.0 < 0.0 {
-                    self.velocity.0 += 0.3;
-                    if self.velocity.0 > 0.0 {
-                        self.velocity.0 = 0.0;
-                    }
-                }
+
 
                 let mut new_pos = pos;
                 let pos_xy = (pos % GRID_WIDTH, pos / GRID_WIDTH);
-                let mut floored_velocity = (self.velocity.0 as i32, self.velocity.1 as i32);
-                let mut intended_pos_xy = (((pos % GRID_WIDTH) as i32) + floored_velocity.0, ((pos / GRID_WIDTH) as i32) + floored_velocity.1);
+                let mut intended_pos_xy = (((pos % GRID_WIDTH) as i32) + self.velocity.0 as i32, ((pos / GRID_WIDTH) as i32) + self.velocity.1 as i32);
                 if intended_pos_xy.0 < 0 {
                     intended_pos_xy.0 = 0;
                 }
@@ -246,29 +261,16 @@ impl Cell {
 
                 let points = Grid::generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize));
 
-                let mut previous_point = points[0];
                 for point in &points[1..] {
                     let mut x = point.0;
-                    if x < 0 || x >= GRID_WIDTH as i32 {
-                        x = previous_point.0;
-                    }
                     let mut y = point.1;
-                    if y < 0 || y >= GRID_WIDTH as i32 {
-                        y = previous_point.1;
-                    }
 
                     let temp = (point.1 as usize) * GRID_WIDTH + point.0 as usize;
                     if grid.grid[temp].cell_type.eq(&CELL_SAND) {
-                        x = previous_point.0;
-                        y = previous_point.1;
-                    }
-
-                    if x == previous_point.0 && y == previous_point.1 {
                         break;
                     }
 
                     new_pos = (point.1 as usize) * GRID_WIDTH + point.0 as usize;
-                    previous_point = point.clone();
                 }
 
                 if pos != new_pos {
