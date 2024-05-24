@@ -11,11 +11,11 @@ use winit::window::{Window, WindowId};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 800;
-const GRID_WIDTH: usize = 200;
+const GRID_WIDTH: usize = 100;
 const GRID_SIZE: usize = GRID_WIDTH * GRID_WIDTH;
 
 const CELL_AIR: CellType = CellType::Air;
-const CELL_SAND: CellType = CellType::Sand([252, 186, 3, 255]);
+const CELL_SAND: CellType = CellType::Sand;
 
 #[derive(Default)]
 struct World {
@@ -28,13 +28,7 @@ impl World {
         let frame = self.pixels.as_mut().unwrap().frame_mut();
         for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
             let cell = self.grid.grid[i];
-            let mut rgba:&[u8;4] = &[0,0,0,255];
-            match cell.cell_type {
-                CellType::Sand(color) => {
-                    rgba = color;
-                }
-                _ => {}
-            }
+            let rgba:&[u8;4] = &cell.color;
 
             pixel.copy_from_slice(rgba);
         }
@@ -62,69 +56,13 @@ impl Grid {
     }
 
     fn place_line(&mut self, pos1: (usize, usize), pos2: (usize, usize), cell_type: &'static CellType) {
-        for point in Self::generate_line(pos1, pos2){
+        for point in generate_line(pos1, pos2){
             self.place((point.1 as usize) * GRID_WIDTH + (point.0 as usize), cell_type);
         }
     }
 
-    fn generate_line(pos1: (usize, usize), pos2: (usize, usize)) -> Vec<(i32, i32)> {
-        let mut points = vec![];
-
-        let mut x1:i32 = pos1.0 as i32;
-        let x2:i32 = pos2.0 as i32;
-        let mut y1:i32 = pos1.1 as i32;
-        let y2:i32 = pos2.1 as i32;
-
-        let dx:i32 = x1.abs_diff(x2) as i32;
-        let mut xpositive = true;
-        if x1 > x2{
-            xpositive = false;
-        }
-        let dy:i32 = -(y1.abs_diff(y2) as i32);
-        let mut ypositive = true;
-        if y1 > y2{
-            ypositive = false;
-        }
-        let mut error = dx + dy;
-
-        loop {
-            points.append(&mut vec![(x1, y1)]);
-            if x1 == x2 && y1 == y2{
-                break;
-            }
-            let e2 = 2 * error;
-            if e2 >= dy{
-                if x1 == x2{
-                    break;
-                }
-                error = error + dy;
-                if xpositive {
-                    x1 += 1;
-                }
-                else {
-                    x1 -= 1;
-                }
-            }
-
-            if e2 <= dx{
-                if y1 == y2{
-                    break
-                }
-                error = error + dx;
-                if ypositive {
-                    y1 += 1;
-                }
-                else {
-                    y1 -= 1;
-                }
-            }
-        }
-
-        points
-    }
-
     fn execute_logic(&mut self) {
-        let mut changes = vec![];
+        let mut changes = Changes::default();
 
         let mut i: usize = 0;
         loop {
@@ -138,34 +76,59 @@ impl Grid {
             }
         }
 
-        for change in changes {
-            self.grid.swap(change.0, change.1);
+        for pos in changes.pos {
+            self.grid.swap(pos.0, pos.1);
+        }
+        for free_falling in changes.free_falling {
+            self.grid[free_falling.0].free_falling = free_falling.1;
         }
     }
+}
+
+#[derive(Default)]
+struct Changes {
+    pos: Vec<(usize, usize)>,
+    free_falling: Vec<(usize, u8)>
 }
 
 #[derive(Copy, Clone)]
 struct Cell {
     cell_type: &'static CellType,
     velocity: (f32, f32),
-    free_falling: bool
+    free_falling: u8,
+    pos: usize,
+    grounded: bool,
+    color: [u8;4]
 }
 
 impl Cell {
     fn new(cell_type: &'static CellType) -> Cell {
+        let mut color = [0u8;4];
+        match cell_type {
+            CellType::Sand => {
+                color = [252, 186, 3, 255];
+            }
+            _ => ()
+        }
         Cell {
             cell_type,
             velocity: (0.0,0.0),
-            free_falling: false
+            free_falling: 0,
+            pos: GRID_SIZE + 1,
+            grounded: false,
+            color
         }
     }
 
-    fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Vec<(usize, usize)>) {
+    fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Changes) {
         match self.cell_type {
-            CellType::Sand(_) => {
+            CellType::Sand => {
                 let mut rng = rand::thread_rng();
+                let inertial_resistance: f64 = 0.1;
+                let free_falling_threshold = 4u8;
 
                 let mut neighbours: [Option<&Cell>; 8] = [None; 8];
+                let mut sand_neighbours: Vec<usize> = vec![];
                 let mut i = -2;
                 let mut j = -2;
                 let mut index = -1;
@@ -184,63 +147,146 @@ impl Cell {
                             continue;
                         }
                         index += 1;
-                        if row / GRID_WIDTH as i32 != p / GRID_WIDTH as i32 {
+                        if row / GRID_WIDTH as i32 != p / GRID_WIDTH as i32 || p < 0 || p >= GRID_SIZE as i32 {
                             continue;
                         }
 
                         neighbours[index as usize] = Option::from(&grid.grid[p as usize]);
+                        if neighbours[index as usize].unwrap().cell_type.eq(&CELL_SAND) {
+                            sand_neighbours.append(&mut vec![p as usize]);
+                        }
                     }
                 }
 
-                if self.velocity.0.abs() < 1.0 {
-                    self.velocity.0 = 0.0;
-                } else {
-                    self.velocity.0 /= 1.5;
+                if self.free_falling == free_falling_threshold * 2 {
+                    let mut occupied_count: u8 = 0;
+                    for i in 0..3 {
+                        if neighbours[5 + i].is_some() {
+                            if neighbours[5 + i].unwrap().cell_type.eq(&CELL_SAND) {
+                                occupied_count += 1;
+                            }
+                        }
+                        else {
+                            occupied_count += 1;
+                        }
+                    }
+
+                    if occupied_count == 3 {
+                        self.free_falling = free_falling_threshold;
+                    }
+                    else {
+                        self.free_falling = 0;
+                    }
                 }
 
-                let mut grounded = false;
+                if sand_neighbours.len() < 5 && self.free_falling < free_falling_threshold {
+                    if rng.gen_bool(1.0 - inertial_resistance) {
+                        for n in sand_neighbours {
+                            changes.free_falling.append(&mut vec![(n, free_falling_threshold * 2)]);
+                        }
+                    }
+                }
+
+
+                let mut grounded = true;
                 if neighbours[6].is_some() {
                     if neighbours[6].unwrap().cell_type.eq(&CELL_AIR) {
-                        self.velocity.1 += 0.3;
+                        grounded = false;
                     }
-                    else { grounded = true; }
                 }
-                else { grounded = true; }
 
-                if grounded {
-                    let mut left_bottom_free = false;
-                    if neighbours[5].is_some() {
-                        if neighbours[5].unwrap().cell_type.eq(&CELL_AIR) {
-                            left_bottom_free = true;
+                if self.velocity.0.abs() >= 1.0 {
+                    self.velocity.0 *= 0.8;
+                    if self.velocity.0.abs() <= 1.0 {
+                        self.velocity.0 = 0.0;
+                    }
+                }
+
+                if !grounded {
+                    self.velocity.1 += 0.3;
+                    self.free_falling = 0;
+                }
+                else {
+
+                    if !self.grounded {
+                        let r:f64 = rng.gen();
+                        let absorbed_speed = 4.0_f32.min(self.velocity.1 * (r as f32));
+
+                        let mut left_free = false;
+                        if neighbours[3].is_some() && self.velocity.0 <= 0.0 {
+                            if neighbours[3].unwrap().cell_type.eq(&CELL_AIR) {
+                                left_free = true;
+                            }
+                        }
+                        let mut right_free = false;
+                        if neighbours[4].is_some() && self.velocity.0 >= 0.0 {
+                            if neighbours[4].unwrap().cell_type.eq(&CELL_AIR) {
+                                right_free = true;
+                            }
+                        }
+
+                        if left_free && right_free {
+                            if rng.gen_bool(0.5) {
+                                left_free = false;
+                            } else {
+                                right_free = false;
+                            }
+                        }
+
+                        if left_free {
+                            self.velocity.0 = -absorbed_speed;
+                        } else if right_free {
+                            self.velocity.0 = absorbed_speed;
                         }
                     }
 
-                    let mut right_bottom_free = false;
-                    if neighbours[7].is_some() {
-                        if neighbours[7].unwrap().cell_type.eq(&CELL_AIR) {
-                            right_bottom_free = true;
-                        }
-                    }
+                    else if self.free_falling < free_falling_threshold {
+                        let roll_speed: f32 = 2.0;
 
-                    let speed = 1.0;
-                    if left_bottom_free && right_bottom_free {
-                        if rng.gen_bool(0.5) {
-                            right_bottom_free = false;
-                        } else {
+                        let mut left_bottom_free = false;
+                        if neighbours[5].is_some() && self.velocity.0 <= 0.0 {
+                            if neighbours[5].unwrap().cell_type.eq(&CELL_AIR) {
+                                left_bottom_free = true;
+                            }
+                        }
+                        let mut right_bottom_free = false;
+                        if neighbours[7].is_some() && self.velocity.0 >= 0.0 {
+                            if neighbours[7].unwrap().cell_type.eq(&CELL_AIR) {
+                                right_bottom_free = true;
+                            }
+                        }
+
+                        if left_bottom_free && right_bottom_free {
+                            if rng.gen_bool(0.5) {
+                                left_bottom_free = false;
+                            } else {
+                                right_bottom_free = false;
+                            }
+                        }
+                        else if rng.gen_bool(inertial_resistance.powf(3.0)) {
+                            self.free_falling = free_falling_threshold;
                             left_bottom_free = false;
+                            right_bottom_free = false;
+                        }
+
+                        if left_bottom_free {
+                            self.velocity.0 = -roll_speed;
+                        } else if right_bottom_free {
+                            self.velocity.0 = roll_speed;
                         }
                     }
-                    if left_bottom_free {
-                        self.velocity.0 -= speed;
-                    } else if right_bottom_free {
-                        self.velocity.0 += speed;
-                    }
 
-                    self.velocity.1 -= 0.5;
-                    if self.velocity.1 < 0.0 {
-                        self.velocity.1 = 0.0;
+                    self.velocity.1 = 2.0;
+                    if self.pos == pos {
+                        self.free_falling += 1;
+                        if self.free_falling > free_falling_threshold {
+                            self.free_falling = free_falling_threshold;
+                            self.velocity.0 = 0.0;
+                        }
                     }
                 }
+
+                self.grounded = grounded;
 
 
                 let mut new_pos = pos;
@@ -259,22 +305,44 @@ impl Cell {
                     intended_pos_xy.1 = (GRID_WIDTH - 1) as i32;
                 }
 
-                let points = Grid::generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize));
+                let steps = line_to_steps(&generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize)));
 
-                for point in &points[1..] {
-                    let mut x = point.0;
-                    let mut y = point.1;
-
-                    let temp = (point.1 as usize) * GRID_WIDTH + point.0 as usize;
+                let mut new_point = (pos_xy.0 as i32, pos_xy.1 as i32);
+                for step in &steps {
+                    let mut point_xy = (new_point.0 + step.0, new_point.1 + step.1);
+                    let mut temp = (point_xy.1 as usize) * GRID_WIDTH + point_xy.0 as usize;
                     if grid.grid[temp].cell_type.eq(&CELL_SAND) {
-                        break;
+                        if step.0 == 0 || step.1 == 0 {
+                            break;
+                        }
+
+                        let mut temp_xy = (point_xy.0, new_point.1);
+                        temp = (temp_xy.1 as usize) * GRID_WIDTH + temp_xy.0 as usize;
+                        if grid.grid[temp].cell_type.eq(&CELL_SAND) {
+                            temp_xy = (new_point.0, point_xy.1);
+                            temp = (temp_xy.1 as usize) * GRID_WIDTH + temp_xy.0 as usize;
+                            if grid.grid[temp].cell_type.eq(&CELL_SAND) {
+                                break;
+                            }
+                        }
+
+                        point_xy = temp_xy;
                     }
 
-                    new_pos = (point.1 as usize) * GRID_WIDTH + point.0 as usize;
+                    new_point = point_xy;
+                    new_pos = (new_point.1 as usize) * GRID_WIDTH + new_point.0 as usize;
                 }
 
                 if pos != new_pos {
-                    changes.append(&mut vec![(pos, new_pos)]);
+                    changes.pos.append(&mut vec![(pos, new_pos)]);
+                }
+                self.pos = pos;
+
+                if self.free_falling >= free_falling_threshold {
+                    self.color = [200, 0, 0, 255];
+                }
+                else {
+                    self.color = [0, 200, 0, 255];
                 }
             }
             _ => {}
@@ -285,7 +353,7 @@ impl Cell {
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CellType {
     Air,
-    Sand([u8;4])
+    Sand
 }
 
 #[derive(Default)]
@@ -406,6 +474,73 @@ fn render(state: &mut State, event_loop: &ActiveEventLoop) {
         event_loop.exit();
         return;
     }
+}
+
+fn generate_line(pos1: (usize, usize), pos2: (usize, usize)) -> Vec<(i32, i32)> {
+    let mut points = vec![];
+
+    let mut x1:i32 = pos1.0 as i32;
+    let x2:i32 = pos2.0 as i32;
+    let mut y1:i32 = pos1.1 as i32;
+    let y2:i32 = pos2.1 as i32;
+
+    let dx:i32 = x1.abs_diff(x2) as i32;
+    let mut xpositive = true;
+    if x1 > x2{
+        xpositive = false;
+    }
+    let dy:i32 = -(y1.abs_diff(y2) as i32);
+    let mut ypositive = true;
+    if y1 > y2{
+        ypositive = false;
+    }
+    let mut error = dx + dy;
+
+    loop {
+        points.append(&mut vec![(x1, y1)]);
+        if x1 == x2 && y1 == y2{
+            break;
+        }
+        let e2 = 2 * error;
+        if e2 >= dy{
+            if x1 == x2{
+                break;
+            }
+            error = error + dy;
+            if xpositive {
+                x1 += 1;
+            }
+            else {
+                x1 -= 1;
+            }
+        }
+
+        if e2 <= dx{
+            if y1 == y2{
+                break
+            }
+            error = error + dx;
+            if ypositive {
+                y1 += 1;
+            }
+            else {
+                y1 -= 1;
+            }
+        }
+    }
+
+    points
+}
+fn line_to_steps(line: &Vec<(i32, i32)>) -> Vec<(i32, i32)> {
+    let mut steps = vec![];
+
+    let mut previous_point = line[0];
+    for point in &line[1..] {
+        steps.append(&mut vec![(point.0 - previous_point.0, point.1 - previous_point.1)]);
+        previous_point = point.clone();
+    }
+
+    steps
 }
 
 fn log_error<E: std::error::Error + 'static>(method_name: &str, err: E) {
