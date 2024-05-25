@@ -11,11 +11,12 @@ use winit::window::{Window, WindowId};
 
 const WIDTH: u32 = 800;
 const HEIGHT: u32 = 800;
-const GRID_WIDTH: usize = 100;
+const GRID_WIDTH: usize = 200;
 const GRID_SIZE: usize = GRID_WIDTH * GRID_WIDTH;
 
 const CELL_AIR: CellType = CellType::Air;
 const CELL_SAND: CellType = CellType::Sand;
+const CELL_DIRT: CellType = CellType::Dirt;
 
 #[derive(Default)]
 struct World {
@@ -108,7 +109,12 @@ impl Cell {
             CellType::Sand => {
                 color = [252, 186, 3, 255];
             }
-            _ => ()
+            CellType::Dirt => {
+                color = [89, 44, 20, 255];
+            }
+            _ => {
+                color = [0,0,0, 255];
+            }
         }
         Cell {
             cell_type,
@@ -123,237 +129,306 @@ impl Cell {
     fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Changes) {
         match self.cell_type {
             CellType::Sand => {
-                let mut rng = rand::thread_rng();
-                let inertial_resistance: f64 = 0.1;
-                let free_falling_threshold = 4u8;
+                // Get neighbours
+                let neighbours: [Option<&Cell>; 8] = Self::get_neighbours(grid, pos);
 
-                let mut neighbours: [Option<&Cell>; 8] = [None; 8];
-                let mut sand_neighbours: Vec<usize> = vec![];
-                let mut i = -2;
-                let mut j = -2;
-                let mut index = -1;
-                while i < 1 {
-                    i += 1;
-                    let row = (pos as i32) + (i * GRID_WIDTH as i32);
-                    if row < 0 || row >= GRID_SIZE as i32 {
-                        index += 3;
-                        continue;
-                    }
-                    j = -2;
-                    while j < 1 {
-                        j += 1;
-                        let p = row + j;
-                        if p == pos as i32 {
-                            continue;
-                        }
-                        index += 1;
-                        if row / GRID_WIDTH as i32 != p / GRID_WIDTH as i32 || p < 0 || p >= GRID_SIZE as i32 {
-                            continue;
-                        }
+                self.movable_solid_logic(grid, pos, neighbours, changes); // Calculate all the forces and set them to self.velocity
 
-                        neighbours[index as usize] = Option::from(&grid.grid[p as usize]);
-                        if neighbours[index as usize].unwrap().cell_type.eq(&CELL_SAND) {
-                            sand_neighbours.append(&mut vec![p as usize]);
-                        }
-                    }
-                }
-
-                if self.free_falling == free_falling_threshold * 2 {
-                    let mut occupied_count: u8 = 0;
-                    for i in 0..3 {
-                        if neighbours[5 + i].is_some() {
-                            if neighbours[5 + i].unwrap().cell_type.eq(&CELL_SAND) {
-                                occupied_count += 1;
-                            }
-                        }
-                        else {
-                            occupied_count += 1;
-                        }
-                    }
-
-                    if occupied_count == 3 {
-                        self.free_falling = free_falling_threshold;
-                    }
-                    else {
-                        self.free_falling = 0;
-                    }
-                }
-
-                if sand_neighbours.len() < 5 && self.free_falling < free_falling_threshold {
-                    if rng.gen_bool(1.0 - inertial_resistance) {
-                        for n in sand_neighbours {
-                            changes.free_falling.append(&mut vec![(n, free_falling_threshold * 2)]);
-                        }
-                    }
-                }
-
-
-                let mut grounded = true;
-                if neighbours[6].is_some() {
-                    if neighbours[6].unwrap().cell_type.eq(&CELL_AIR) {
-                        grounded = false;
-                    }
-                }
-
-                if self.velocity.0.abs() >= 1.0 {
-                    self.velocity.0 *= 0.8;
-                    if self.velocity.0.abs() <= 1.0 {
-                        self.velocity.0 = 0.0;
-                    }
-                }
-
-                if !grounded {
-                    self.velocity.1 += 0.3;
-                    self.free_falling = 0;
-                }
-                else {
-
-                    if !self.grounded {
-                        let r:f64 = rng.gen();
-                        let absorbed_speed = 4.0_f32.min(self.velocity.1 * (r as f32));
-
-                        let mut left_free = false;
-                        if neighbours[3].is_some() && self.velocity.0 <= 0.0 {
-                            if neighbours[3].unwrap().cell_type.eq(&CELL_AIR) {
-                                left_free = true;
-                            }
-                        }
-                        let mut right_free = false;
-                        if neighbours[4].is_some() && self.velocity.0 >= 0.0 {
-                            if neighbours[4].unwrap().cell_type.eq(&CELL_AIR) {
-                                right_free = true;
-                            }
-                        }
-
-                        if left_free && right_free {
-                            if rng.gen_bool(0.5) {
-                                left_free = false;
-                            } else {
-                                right_free = false;
-                            }
-                        }
-
-                        if left_free {
-                            self.velocity.0 = -absorbed_speed;
-                        } else if right_free {
-                            self.velocity.0 = absorbed_speed;
-                        }
-                    }
-
-                    else if self.free_falling < free_falling_threshold {
-                        let roll_speed: f32 = 2.0;
-
-                        let mut left_bottom_free = false;
-                        if neighbours[5].is_some() && self.velocity.0 <= 0.0 {
-                            if neighbours[5].unwrap().cell_type.eq(&CELL_AIR) {
-                                left_bottom_free = true;
-                            }
-                        }
-                        let mut right_bottom_free = false;
-                        if neighbours[7].is_some() && self.velocity.0 >= 0.0 {
-                            if neighbours[7].unwrap().cell_type.eq(&CELL_AIR) {
-                                right_bottom_free = true;
-                            }
-                        }
-
-                        if left_bottom_free && right_bottom_free {
-                            if rng.gen_bool(0.5) {
-                                left_bottom_free = false;
-                            } else {
-                                right_bottom_free = false;
-                            }
-                        }
-                        else if rng.gen_bool(inertial_resistance.powf(3.0)) {
-                            self.free_falling = free_falling_threshold;
-                            left_bottom_free = false;
-                            right_bottom_free = false;
-                        }
-
-                        if left_bottom_free {
-                            self.velocity.0 = -roll_speed;
-                        } else if right_bottom_free {
-                            self.velocity.0 = roll_speed;
-                        }
-                    }
-
-                    self.velocity.1 = 2.0;
-                    if self.pos == pos {
-                        self.free_falling += 1;
-                        if self.free_falling > free_falling_threshold {
-                            self.free_falling = free_falling_threshold;
-                            self.velocity.0 = 0.0;
-                        }
-                    }
-                }
-
-                self.grounded = grounded;
-
-
-                let mut new_pos = pos;
-                let pos_xy = (pos % GRID_WIDTH, pos / GRID_WIDTH);
-                let mut intended_pos_xy = (((pos % GRID_WIDTH) as i32) + self.velocity.0 as i32, ((pos / GRID_WIDTH) as i32) + self.velocity.1 as i32);
-                if intended_pos_xy.0 < 0 {
-                    intended_pos_xy.0 = 0;
-                }
-                if intended_pos_xy.1 < 0 {
-                    intended_pos_xy.1 = 0;
-                }
-                if intended_pos_xy.0 >= GRID_WIDTH as i32 {
-                    intended_pos_xy.0 = (GRID_WIDTH - 1) as i32;
-                }
-                if intended_pos_xy.1 >= GRID_WIDTH as i32 {
-                    intended_pos_xy.1 = (GRID_WIDTH - 1) as i32;
-                }
-
-                let steps = line_to_steps(&generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize)));
-
-                let mut new_point = (pos_xy.0 as i32, pos_xy.1 as i32);
-                for step in &steps {
-                    let mut point_xy = (new_point.0 + step.0, new_point.1 + step.1);
-                    let mut temp = (point_xy.1 as usize) * GRID_WIDTH + point_xy.0 as usize;
-                    if grid.grid[temp].cell_type.eq(&CELL_SAND) {
-                        if step.0 == 0 || step.1 == 0 {
-                            break;
-                        }
-
-                        let mut temp_xy = (point_xy.0, new_point.1);
-                        temp = (temp_xy.1 as usize) * GRID_WIDTH + temp_xy.0 as usize;
-                        if grid.grid[temp].cell_type.eq(&CELL_SAND) {
-                            temp_xy = (new_point.0, point_xy.1);
-                            temp = (temp_xy.1 as usize) * GRID_WIDTH + temp_xy.0 as usize;
-                            if grid.grid[temp].cell_type.eq(&CELL_SAND) {
-                                break;
-                            }
-                        }
-
-                        point_xy = temp_xy;
-                    }
-
-                    new_point = point_xy;
-                    new_pos = (new_point.1 as usize) * GRID_WIDTH + new_point.0 as usize;
-                }
+                let new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
 
                 if pos != new_pos {
                     changes.pos.append(&mut vec![(pos, new_pos)]);
                 }
                 self.pos = pos;
+            }
+            CellType::Dirt => {
+                // Get neighbours
+                let neighbours: [Option<&Cell>; 8] = Self::get_neighbours(grid, pos);
 
-                if self.free_falling >= free_falling_threshold {
-                    self.color = [200, 0, 0, 255];
+                self.movable_solid_logic(grid, pos, neighbours, changes); // Calculate all the forces and set them to self.velocity
+
+                let new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
+
+                if pos != new_pos {
+                    changes.pos.append(&mut vec![(pos, new_pos)]);
                 }
-                else {
-                    self.color = [0, 200, 0, 255];
-                }
+                self.pos = pos;
             }
             _ => {}
         }
+    }
+
+    fn movable_solid_logic(&mut self, grid: &Grid, pos: usize, neighbours: [Option<&Cell>; 8], changes: &mut Changes) {
+        let mut rng = rand::thread_rng();
+        let free_falling_threshold = 4u8;
+        let type_neighbours = Self::get_neighbours_of_type(neighbours, self.cell_type);
+
+        // Validate the change of free-falling flag by external cell
+        if self.free_falling == free_falling_threshold * 2 {
+            let mut occupied_count: u8 = 0;
+            for i in 0..3 {
+                if neighbours[5 + i].is_some() {
+                    if CellType::is_solid(neighbours[5 + i].unwrap().cell_type) {
+                        occupied_count += 1;
+                    }
+                }
+                else {
+                    occupied_count += 1;
+                }
+            }
+
+            if occupied_count == 3 {
+                self.free_falling = free_falling_threshold;
+            }
+            else {
+                self.free_falling = 0;
+            }
+        }
+
+        // Set the free-falling flag of neighbour cells
+        if type_neighbours.len() < 5 && self.free_falling < free_falling_threshold {
+            for n in type_neighbours {
+                if rng.gen_bool(1.0 - CellType::get_inertial_resistance(grid.grid[n].cell_type)) {
+                    changes.free_falling.append(&mut vec![(n, free_falling_threshold * 2)]);
+                }
+            }
+        }
+
+        // Has solid under feet
+        let mut grounded = true;
+        if neighbours[6].is_some() {
+            if neighbours[6].unwrap().cell_type.eq(&CELL_AIR) {
+                grounded = false;
+            }
+        }
+
+        // Horizontal velocity drag
+        if self.velocity.0.abs() >= 1.0 {
+            self.velocity.0 *= 0.8;
+            if self.velocity.0.abs() <= 1.0 {
+                self.velocity.0 = 0.0;
+            }
+        }
+
+        if !grounded {
+            self.velocity.1 += 0.3; // Gravity
+            self.free_falling = 0;
+        }
+        else {
+            if !self.grounded { // If grounded from previous frame was false - did it just hit the ground
+                let r:f64 = rng.gen();
+                let absorbed_speed = 4.0_f32.min(self.velocity.1 * (r as f32));
+
+                let mut left_free = false;
+                if neighbours[3].is_some() && self.velocity.0 <= 0.0 {
+                    if neighbours[3].unwrap().cell_type.eq(&CELL_AIR) {
+                        left_free = true;
+                    }
+                }
+                let mut right_free = false;
+                if neighbours[4].is_some() && self.velocity.0 >= 0.0 {
+                    if neighbours[4].unwrap().cell_type.eq(&CELL_AIR) {
+                        right_free = true;
+                    }
+                }
+
+                if left_free && right_free {
+                    if rng.gen_bool(0.5) {
+                        left_free = false;
+                    } else {
+                        right_free = false;
+                    }
+                }
+
+                if left_free {
+                    self.velocity.0 = -absorbed_speed;
+                } else if right_free {
+                    self.velocity.0 = absorbed_speed;
+                }
+            }
+
+            else if self.free_falling < free_falling_threshold { // Is in free-fall state
+                let mut left_bottom_free = false;
+                if neighbours[5].is_some() && self.velocity.0 <= 0.0 {
+                    if neighbours[5].unwrap().cell_type.eq(&CELL_AIR) {
+                        left_bottom_free = true;
+                    }
+                }
+                let mut right_bottom_free = false;
+                if neighbours[7].is_some() && self.velocity.0 >= 0.0 {
+                    if neighbours[7].unwrap().cell_type.eq(&CELL_AIR) {
+                        right_bottom_free = true;
+                    }
+                }
+
+                if left_bottom_free && right_bottom_free {
+                    if rng.gen_bool(0.5) {
+                        left_bottom_free = false;
+                    } else {
+                        right_bottom_free = false;
+                    }
+                }
+                else if rng.gen_bool(CellType::get_inertial_resistance(&CELL_SAND).powf(3.0)) { // There is a chance for the cell to stop moving at the edge of the hill
+                    self.free_falling = free_falling_threshold;
+                    left_bottom_free = false;
+                    right_bottom_free = false;
+                }
+
+                if left_bottom_free {
+                    self.velocity.0 = -CellType::get_roll_speed(self.cell_type);
+                } else if right_bottom_free {
+                    self.velocity.0 = CellType::get_roll_speed(self.cell_type);
+                }
+            }
+
+            self.velocity.1 = CellType::get_roll_speed(self.cell_type); // Constant weight kinda
+            if self.pos == pos { // If the pos didn't change from the previous frame
+                self.free_falling += 1;
+                if self.free_falling > free_falling_threshold {
+                    self.free_falling = free_falling_threshold;
+                    self.velocity.0 = 0.0;
+                }
+            }
+        }
+
+        self.grounded = grounded;
+    }
+
+    fn physics(&mut self, grid: &Grid, pos: usize) -> usize {
+        let mut new_pos = pos;
+        let pos_xy = (pos % GRID_WIDTH, pos / GRID_WIDTH);
+        let mut intended_pos_xy = (((pos % GRID_WIDTH) as i32) + self.velocity.0 as i32, ((pos / GRID_WIDTH) as i32) + self.velocity.1 as i32);
+        if intended_pos_xy.0 < 0 {
+            intended_pos_xy.0 = 0;
+        }
+        if intended_pos_xy.1 < 0 {
+            intended_pos_xy.1 = 0;
+        }
+        if intended_pos_xy.0 >= GRID_WIDTH as i32 {
+            intended_pos_xy.0 = (GRID_WIDTH - 1) as i32;
+        }
+        if intended_pos_xy.1 >= GRID_WIDTH as i32 {
+            intended_pos_xy.1 = (GRID_WIDTH - 1) as i32;
+        }
+
+        let steps = line_to_steps(&generate_line(pos_xy, (intended_pos_xy.0 as usize, intended_pos_xy.1 as usize)));
+
+        let mut new_point = (pos_xy.0 as i32, pos_xy.1 as i32);
+        for step in &steps {
+            let mut point_xy = (new_point.0 + step.0, new_point.1 + step.1);
+            let mut temp = (point_xy.1 as usize) * GRID_WIDTH + point_xy.0 as usize;
+            if CellType::is_solid(grid.grid[temp].cell_type) {
+                if step.0 == 0 || step.1 == 0 {
+                    break;
+                }
+
+                let mut temp_xy = (point_xy.0, new_point.1);
+                temp = (temp_xy.1 as usize) * GRID_WIDTH + temp_xy.0 as usize;
+                if CellType::is_solid(grid.grid[temp].cell_type) {
+                    temp_xy = (new_point.0, point_xy.1);
+                    temp = (temp_xy.1 as usize) * GRID_WIDTH + temp_xy.0 as usize;
+                    if CellType::is_solid(grid.grid[temp].cell_type) {
+                        break;
+                    }
+                }
+
+                point_xy = temp_xy;
+            }
+            new_point = point_xy;
+            new_pos = (new_point.1 as usize) * GRID_WIDTH + new_point.0 as usize;
+        }
+
+        new_pos
+    }
+
+    fn get_neighbours(grid: &Grid, pos: usize) -> [Option<&Cell>;8] {
+        let mut neighbours: [Option<&Cell>; 8] = [None; 8];
+        let mut i = -2;
+        let mut j = -2;
+        let mut index = -1;
+        while i < 1 {
+            i += 1;
+            let row = (pos as i32) + (i * GRID_WIDTH as i32);
+            if row < 0 || row >= GRID_SIZE as i32 {
+                index += 3;
+                continue;
+            }
+            j = -2;
+            while j < 1 {
+                j += 1;
+                let p = row + j;
+                if p == pos as i32 {
+                    continue;
+                }
+                index += 1;
+                if row / GRID_WIDTH as i32 != p / GRID_WIDTH as i32 || p < 0 || p >= GRID_SIZE as i32 {
+                    continue;
+                }
+
+                neighbours[index as usize] = Option::from(&grid.grid[p as usize]);
+            }
+        }
+
+        neighbours
+    }
+
+    fn get_neighbours_of_type(neighbours: [Option<&Cell>;8], cell_type: &CellType) -> Vec<usize> {
+        let mut type_neighbours: Vec<usize> = vec![];
+
+        for n in neighbours {
+            if n.is_none()                         { continue; }
+            if !n.unwrap().cell_type.eq(cell_type) { continue; }
+            if n.unwrap().pos >= GRID_SIZE         { continue; }
+
+            type_neighbours.append(&mut vec![n.unwrap().pos]);
+        }
+
+        type_neighbours
     }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
 enum CellType {
     Air,
-    Sand
+    Sand,
+    Stone,
+    Water,
+    Dirt,
+    Coal,
+    Co2
+}
+
+impl CellType {
+    fn is_solid(cell_type: &CellType) -> bool {
+        match cell_type {
+            CellType::Air => { false }
+            CellType::Sand => { true }
+            CellType::Stone => { true }
+            CellType::Water => { false }
+            CellType::Dirt => { true }
+            CellType::Coal => { true }
+            CellType::Co2 => { false }
+        }
+    }
+
+    fn get_inertial_resistance(cell_type: &CellType) -> f64 {
+        match cell_type {
+            CellType::Sand => { 0.1 }
+            CellType::Dirt => { 0.4 }
+            CellType::Coal => { 0.8 }
+            _ => { 0.0 }
+        }
+    }
+
+    fn get_roll_speed(cell_type: &CellType) -> f32 {
+        match cell_type {
+            CellType::Air => { 0.0 }
+            CellType::Sand => { 2.0 }
+            CellType::Dirt => { 1.5 }
+            CellType::Coal => { 1.0 }
+            _ => { 0.0 }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -370,7 +445,8 @@ struct State {
 struct Input {
     mouse_position: PhysicalPosition<f32>,
     previous_mouse_position: PhysicalPosition<f32>,
-    left_mouse_pressed: bool
+    left_mouse_pressed: bool,
+    right_mouse_pressed: bool
 }
 
 impl ApplicationHandler for State {
@@ -422,6 +498,16 @@ impl ApplicationHandler for State {
                         }
                     }
                 }
+                else if button == MouseButton::Right {
+                    match state {
+                        ElementState::Pressed => {
+                            self.input.right_mouse_pressed = true;
+                        }
+                        ElementState::Released => {
+                            self.input.right_mouse_pressed = false;
+                        }
+                    }
+                }
             }
             _ => ()
         }
@@ -446,7 +532,7 @@ fn main() {
 }
 
 fn update(state: &mut State, _event_loop: &ActiveEventLoop) {
-    if state.input.left_mouse_pressed {
+    if state.input.left_mouse_pressed || state.input.right_mouse_pressed {
         if state.world.pixels.is_some() {
             let pixel_pos1 =
                 state.world.pixels.as_mut().unwrap()
@@ -457,7 +543,12 @@ fn update(state: &mut State, _event_loop: &ActiveEventLoop) {
             if pixel_pos1.is_ok() && pixel_pos2.is_ok() {
                 let pos1 = pixel_pos1.unwrap();
                 let pos2 = pixel_pos2.unwrap();
-                state.world.grid.place_line(pos1, pos2, &CELL_SAND);
+                if state.input.left_mouse_pressed {
+                    state.world.grid.place_line(pos1, pos2, &CELL_SAND);
+                }
+                else {
+                    state.world.grid.place_line(pos1, pos2, &CELL_DIRT);
+                }
             }
         }
     }
