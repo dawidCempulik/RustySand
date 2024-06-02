@@ -65,16 +65,10 @@ impl Grid {
     fn execute_logic(&mut self) {
         let mut changes = Changes::default();
 
-        let mut i: usize = 0;
-        loop {
+        for i in 0..GRID_SIZE {
             let mut cell: Cell = self.grid[i];
             cell.logic(self, i, &mut changes);
             self.grid[i] = cell;
-
-            i += 1;
-            if i == GRID_SIZE {
-                break;
-            }
         }
 
         for pos in changes.pos {
@@ -129,10 +123,7 @@ impl Cell {
     fn logic(&mut self, grid: &Grid, pos: usize, changes: &mut Changes) {
         match self.cell_type {
             CellType::Sand => {
-                // Get neighbours
-                let neighbours: [Option<&Cell>; 8] = Self::get_neighbours(grid, pos);
-
-                self.movable_solid_logic(grid, pos, neighbours, changes); // Calculate all the forces and set them to self.velocity
+                self.movable_solid_logic(grid, pos, changes); // Calculate all the forces and set them to self.velocity
 
                 let new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
 
@@ -142,10 +133,7 @@ impl Cell {
                 self.pos = pos;
             }
             CellType::Dirt => {
-                // Get neighbours
-                let neighbours: [Option<&Cell>; 8] = Self::get_neighbours(grid, pos);
-
-                self.movable_solid_logic(grid, pos, neighbours, changes); // Calculate all the forces and set them to self.velocity
+                self.movable_solid_logic(grid, pos, changes); // Calculate all the forces and set them to self.velocity
 
                 let new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
 
@@ -158,17 +146,49 @@ impl Cell {
         }
     }
 
-    fn movable_solid_logic(&mut self, grid: &Grid, pos: usize, neighbours: [Option<&Cell>; 8], changes: &mut Changes) {
+    fn movable_solid_logic(&mut self, grid: &Grid, pos: usize, changes: &mut Changes) {
         let mut rng = rand::thread_rng();
         let free_falling_threshold = 4u8;
-        let type_neighbours = Self::get_neighbours_of_type(neighbours, self.cell_type);
+        let mut neighbours: [(usize, Option<&Cell>);8] = [(0, None); 8];
+
+        // Set the free-falling flag of neighbour cells
+        if self.free_falling < free_falling_threshold {
+            neighbours = Self::get_neighbours(grid, pos);
+            let mut movable_solid_neighbours = vec![];
+            for (p, n) in neighbours {
+                if n.is_some() {
+                    if CellType::is_movable_solid(n.unwrap().cell_type) {
+                        movable_solid_neighbours.append(&mut vec![p])
+                    }
+                }
+            }
+
+            if movable_solid_neighbours.len() < 5 {
+                for n in movable_solid_neighbours {
+                    if rng.gen_bool(1.0 - CellType::get_inertial_resistance(grid.grid[n].cell_type)) {
+                        changes.free_falling.append(&mut vec![(n, free_falling_threshold * 2)]);
+                    }
+                }
+            }
+        }
+        else {
+            if self.free_falling == free_falling_threshold * 2 {
+                for i in 0..3 {
+                    neighbours[5 + i] = Self::get_neighbour(grid, pos, (-1 + i as i8, 1))
+                }
+            }
+            else {
+                neighbours[6] = Self::get_neighbour(grid, pos, (0, 1));
+            }
+        }
+
 
         // Validate the change of free-falling flag by external cell
         if self.free_falling == free_falling_threshold * 2 {
             let mut occupied_count: u8 = 0;
             for i in 0..3 {
-                if neighbours[5 + i].is_some() {
-                    if CellType::is_solid(neighbours[5 + i].unwrap().cell_type) {
+                if neighbours[5 + i].1.is_some() {
+                    if CellType::is_solid(neighbours[5 + i].1.unwrap().cell_type) {
                         occupied_count += 1;
                     }
                 }
@@ -185,19 +205,11 @@ impl Cell {
             }
         }
 
-        // Set the free-falling flag of neighbour cells
-        if type_neighbours.len() < 5 && self.free_falling < free_falling_threshold {
-            for n in type_neighbours {
-                if rng.gen_bool(1.0 - CellType::get_inertial_resistance(grid.grid[n].cell_type)) {
-                    changes.free_falling.append(&mut vec![(n, free_falling_threshold * 2)]);
-                }
-            }
-        }
 
-        // Has solid under feet
+        // Has solid under
         let mut grounded = true;
-        if neighbours[6].is_some() {
-            if neighbours[6].unwrap().cell_type.eq(&CELL_AIR) {
+        if neighbours[6].1.is_some() {
+            if neighbours[6].1.unwrap().cell_type.eq(&CELL_AIR) {
                 grounded = false;
             }
         }
@@ -220,14 +232,14 @@ impl Cell {
                 let absorbed_speed = 4.0_f32.min(self.velocity.1 * (r as f32));
 
                 let mut left_free = false;
-                if neighbours[3].is_some() && self.velocity.0 <= 0.0 {
-                    if neighbours[3].unwrap().cell_type.eq(&CELL_AIR) {
+                if neighbours[3].1.is_some() && self.velocity.0 <= 0.0 {
+                    if neighbours[3].1.unwrap().cell_type.eq(&CELL_AIR) {
                         left_free = true;
                     }
                 }
                 let mut right_free = false;
-                if neighbours[4].is_some() && self.velocity.0 >= 0.0 {
-                    if neighbours[4].unwrap().cell_type.eq(&CELL_AIR) {
+                if neighbours[4].1.is_some() && self.velocity.0 >= 0.0 {
+                    if neighbours[4].1.unwrap().cell_type.eq(&CELL_AIR) {
                         right_free = true;
                     }
                 }
@@ -249,14 +261,14 @@ impl Cell {
 
             else if self.free_falling < free_falling_threshold { // Is in free-fall state
                 let mut left_bottom_free = false;
-                if neighbours[5].is_some() && self.velocity.0 <= 0.0 {
-                    if neighbours[5].unwrap().cell_type.eq(&CELL_AIR) {
+                if neighbours[5].1.is_some() && self.velocity.0 <= 0.0 {
+                    if neighbours[5].1.unwrap().cell_type.eq(&CELL_AIR) {
                         left_bottom_free = true;
                     }
                 }
                 let mut right_bottom_free = false;
-                if neighbours[7].is_some() && self.velocity.0 >= 0.0 {
-                    if neighbours[7].unwrap().cell_type.eq(&CELL_AIR) {
+                if neighbours[7].1.is_some() && self.velocity.0 >= 0.0 {
+                    if neighbours[7].1.unwrap().cell_type.eq(&CELL_AIR) {
                         right_bottom_free = true;
                     }
                 }
@@ -341,8 +353,8 @@ impl Cell {
         new_pos
     }
 
-    fn get_neighbours(grid: &Grid, pos: usize) -> [Option<&Cell>;8] {
-        let mut neighbours: [Option<&Cell>; 8] = [None; 8];
+    fn get_neighbours(grid: &Grid, pos: usize) -> [(usize, Option<&Cell>);8] {
+        let mut neighbours: [(usize, Option<&Cell>);8] = [(0, None); 8];
         let mut i = -2;
         let mut j = -2;
         let mut index = -1;
@@ -365,25 +377,27 @@ impl Cell {
                     continue;
                 }
 
-                neighbours[index as usize] = Option::from(&grid.grid[p as usize]);
+                neighbours[index as usize] = (p as usize ,Option::from(&grid.grid[p as usize]));
             }
         }
 
         neighbours
     }
 
-    fn get_neighbours_of_type(neighbours: [Option<&Cell>;8], cell_type: &CellType) -> Vec<usize> {
-        let mut type_neighbours: Vec<usize> = vec![];
+    fn get_neighbour(grid: &Grid, pos: usize, dir: (i8, i8)) -> (usize, Option<&Cell>) {
+        let mut neighbour = (0, None);
 
-        for n in neighbours {
-            if n.is_none()                         { continue; }
-            if !n.unwrap().cell_type.eq(cell_type) { continue; }
-            if n.unwrap().pos >= GRID_SIZE         { continue; }
+        let x: i32 = ((pos % GRID_WIDTH) as i32) + dir.0 as i32;
+        let y: i32 = ((pos / GRID_WIDTH) as i32) + dir.1 as i32;
 
-            type_neighbours.append(&mut vec![n.unwrap().pos]);
+        if x < 0 || x >= GRID_WIDTH as i32 || y < 0 || y >= GRID_WIDTH as i32 {
+            return neighbour
         }
 
-        type_neighbours
+        let p = (y as usize) * GRID_WIDTH + x as usize;
+        neighbour = (p, Option::from(&grid.grid[p]));
+
+        neighbour
     }
 }
 
@@ -404,6 +418,18 @@ impl CellType {
             CellType::Air => { false }
             CellType::Sand => { true }
             CellType::Stone => { true }
+            CellType::Water => { false }
+            CellType::Dirt => { true }
+            CellType::Coal => { true }
+            CellType::Co2 => { false }
+        }
+    }
+
+    fn is_movable_solid(cell_type: &CellType) -> bool {
+        match cell_type {
+            CellType::Air => { false }
+            CellType::Sand => { true }
+            CellType::Stone => { false }
             CellType::Water => { false }
             CellType::Dirt => { true }
             CellType::Coal => { true }
