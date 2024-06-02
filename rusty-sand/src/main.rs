@@ -125,7 +125,10 @@ impl Cell {
             CellType::Sand => {
                 self.movable_solid_logic(grid, pos, changes); // Calculate all the forces and set them to self.velocity
 
-                let new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
+                let mut new_pos = pos;
+                if self.velocity.0 != 0.0 || self.free_falling < 4 {
+                    new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
+                }
 
                 if pos != new_pos {
                     changes.pos.append(&mut vec![(pos, new_pos)]);
@@ -135,7 +138,10 @@ impl Cell {
             CellType::Dirt => {
                 self.movable_solid_logic(grid, pos, changes); // Calculate all the forces and set them to self.velocity
 
-                let new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
+                let mut new_pos = pos;
+                if self.velocity.0 != 0.0 || self.free_falling < 4 {
+                    new_pos = self.physics(grid, pos); // Calculate physics based on the self.velocity
+                }
 
                 if pos != new_pos {
                     changes.pos.append(&mut vec![(pos, new_pos)]);
